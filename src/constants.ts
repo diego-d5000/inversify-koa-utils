@@ -16,7 +16,8 @@ export enum PARAMETER_TYPE {
     BODY,
     HEADERS,
     COOKIES,
-    NEXT
+    NEXT,
+    CTX
 }
 
 const DEFAULT_ROUTING_ROOT_PATH = "/";

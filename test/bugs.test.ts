@@ -1,8 +1,8 @@
 import { expect } from "chai";
-import * as express from "express";
+import * as Koa from "koa";
 import { interfaces } from "../src/interfaces";
 import { METADATA_KEY, PARAMETER_TYPE } from "../src/constants";
-import { InversifyExpressServer } from "../src/server";
+import { InversifyKoaServer } from "../src/server";
 import { Container, injectable } from "inversify";
 import { TYPE } from "../src/constants";
 import * as supertest from "supertest";
@@ -22,33 +22,33 @@ describe("Unit Test: Previous bugs", () => {
         class TestController {
             @httpGet("/")
             public get(
-                @request() req: express.Request,
-                @response() res: express.Response
+                @request() req: Koa.Request,
+                @response() res: Koa.Response
             ) {
                 expect(req.url).not.to.eql(undefined);
                 expect((req as any).setHeader).to.eql(undefined);
-                expect(res.setHeader).not.to.eql(undefined);
+                expect(res.headers).not.to.eql(undefined);
                 expect((res as any).url).to.eql(undefined);
-                res.json([{ id: 1 }, { id: 2 }]);
+                res.body = [{ id: 1 }, { id: 2 }];
             }
             @httpGet("/:id")
             public getById(
                 @requestParam("id") id: string,
-                @request() req: express.Request,
-                @response() res: express.Response
+                @request() req: Koa.Request,
+                @response() res: Koa.Response
             ) {
                 expect(id).to.eql("5");
                 expect(req.url).not.to.eql(undefined);
                 expect((req as any).setHeader).to.eql(undefined);
-                expect(res.setHeader).not.to.eql(undefined);
+                expect(res.headers).not.to.eql(undefined);
                 expect((res as any).url).to.eql(undefined);
-                res.json({ id: id });
+                res.body = { id: id };
             }
         }
 
         container.bind(TYPE.Controller).to(TestController);
-        let server = new InversifyExpressServer(container);
-        let app = server.build();
+        let server = new InversifyKoaServer(container);
+        let app = server.build().listen();
 
         supertest(app).get("/api/test/")
                       .expect("Content-Type", /json/)
@@ -78,8 +78,8 @@ describe("Unit Test: Previous bugs", () => {
         class TestController {
             @httpGet("/")
             public get(
-                @request() req: express.Request,
-                @response() res: express.Response,
+                @request() req: Koa.Request,
+                @response() res: Koa.Response,
                 @queryParam("empty") empty: string,
                 @queryParam("test") test: string
             ) {
@@ -89,8 +89,8 @@ describe("Unit Test: Previous bugs", () => {
         }
 
         container.bind(TYPE.Controller).to(TestController);
-        let server = new InversifyExpressServer(container);
-        let app = server.build();
+        let server = new InversifyKoaServer(container);
+        let app = server.build().listen();
 
         supertest(app).get("/api/test?test=testquery")
                       .expect("Content-Type", /json/)

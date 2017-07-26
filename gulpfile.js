@@ -8,7 +8,8 @@ var gulp = require("gulp"),
     tsc = require("gulp-typescript"),
     runSequence = require("run-sequence"),
     mocha = require("gulp-mocha"),
-    istanbul = require("gulp-istanbul");
+    istanbul = require("gulp-istanbul"),
+    exit = require("gulp-exit");
 
 //******************************************************************************
 //* LINT
@@ -115,7 +116,8 @@ gulp.task("mocha", function() {
         .pipe(mocha({
             ui: "bdd"
         }))
-        .pipe(istanbul.writeReports());
+        .pipe(istanbul.writeReports())
+        .pipe(exit());
 });
 
 gulp.task("istanbul:hook", function() {

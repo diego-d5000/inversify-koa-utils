@@ -3,24 +3,25 @@ import { expect } from "chai";
 import * as sinon from "sinon";
 
 // dependencies
-import * as express from "express";
-import { InversifyExpressServer } from "../src/server";
+import * as Koa from "koa";
+import * as Router from "koa-router";
+import { InversifyKoaServer } from "../src/server";
 import { Container, injectable } from "inversify";
 import { TYPE } from "../src/constants";
 
-describe("Unit Test: InversifyExpressServer", () => {
+describe("Unit Test: InversifyKoaServer", () => {
 
     it("should call the configFn before the errorConfigFn", (done) => {
-        let middleware = function(req: express.Request, res: express.Response, next: express.NextFunction) { return; };
-        let configFn = sinon.spy((app: express.Application) => { app.use(middleware); });
-        let errorConfigFn = sinon.spy((app: express.Application) => { app.use(middleware); });
+        let middleware = function(ctx: Router.IRouterContext, next: () => Promise<any>) { return; };
+        let configFn = sinon.spy((app: Koa) => { app.use(middleware); });
+        let errorConfigFn = sinon.spy((app: Koa) => { app.use(middleware); });
         let container = new Container();
 
         @injectable()
         class TestController {}
 
         container.bind(TYPE.Controller).to(TestController);
-        let server = new InversifyExpressServer(container);
+        let server = new InversifyKoaServer(container);
 
         server.setConfig(configFn)
             .setErrorConfig(errorConfigFn);
@@ -40,14 +41,11 @@ describe("Unit Test: InversifyExpressServer", () => {
 
         let container = new Container();
 
-        let customRouter = express.Router({
-            caseSensitive: false,
-            mergeParams: false,
-            strict: false
+        let customRouter = new Router({
         });
 
-        let serverWithDefaultRouter = new InversifyExpressServer(container);
-        let serverWithCustomRouter = new InversifyExpressServer(container, customRouter);
+        let serverWithDefaultRouter = new InversifyKoaServer(container);
+        let serverWithCustomRouter = new InversifyKoaServer(container, customRouter);
 
         expect((serverWithDefaultRouter as any)._router === customRouter).to.eq(false);
         expect((serverWithCustomRouter as any)._router === customRouter).to.eqls(true);
@@ -62,8 +60,8 @@ describe("Unit Test: InversifyExpressServer", () => {
             rootPath: "/such/root/path"
         };
 
-        let serverWithDefaultConfig = new InversifyExpressServer(container);
-        let serverWithCustomConfig = new InversifyExpressServer(container, null, routingConfig);
+        let serverWithDefaultConfig = new InversifyKoaServer(container);
+        let serverWithCustomConfig = new InversifyKoaServer(container, null, routingConfig);
 
         expect((serverWithCustomConfig as any)._routingConfig).to.eq(routingConfig);
         expect((serverWithDefaultConfig as any)._routingConfig).to.not.eql(
@@ -72,15 +70,16 @@ describe("Unit Test: InversifyExpressServer", () => {
 
     });
 
-    it("Should allow to provide a custom express application", () => {
+    it("Should allow to provide a custom Koa application", () => {
         let container = new Container();
 
-        let app = express();
+        let app = new Koa();
 
-        let serverWithDefaultApp = new InversifyExpressServer(container);
-        let serverWithCustomApp = new InversifyExpressServer(container, null, null, app);
+        let serverWithDefaultApp = new InversifyKoaServer(container);
+        let serverWithCustomApp = new InversifyKoaServer(container, null, null, app);
 
         expect((serverWithCustomApp as any)._app).to.eq(app);
-        expect((serverWithDefaultApp as any)._app).to.not.eql((serverWithCustomApp as any)._app);
+        // deeply equal causes error with property URL
+        expect((serverWithDefaultApp as any)._app).to.not.equal((serverWithCustomApp as any)._app);
     });
 });

@@ -1,10 +1,11 @@
-import * as express from "express";
+import * as Koa from "koa";
+import * as Router from "koa-router";
 import { interfaces as inversifyInterfaces } from "inversify";
 import { PARAMETER_TYPE } from "./constants";
 
 namespace interfaces {
 
-    export type Middleware = (inversifyInterfaces.ServiceIdentifier<any> | express.RequestHandler);
+    export type Middleware = (inversifyInterfaces.ServiceIdentifier<any> | KoaRequestHandler);
 
     export interface ControllerMetadata {
         path: string;
@@ -34,11 +35,15 @@ namespace interfaces {
     }
 
     export interface ConfigFunction {
-        (app: express.Application): void;
+        (app: Koa): void;
     }
 
     export interface RoutingConfig {
         rootPath: string;
+    }
+
+    export interface KoaRequestHandler {
+        (ctx: Router.IRouterContext, next: () => Promise<any>): any;
     }
 
 }

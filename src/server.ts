@@ -1,69 +1,70 @@
-import * as express from "express";
+import * as Koa from "koa";
+import * as Router from "koa-router";
 import * as inversify from "inversify";
 import { interfaces } from "./interfaces";
 import { TYPE, METADATA_KEY, DEFAULT_ROUTING_ROOT_PATH, PARAMETER_TYPE } from "./constants";
 
 /**
- * Wrapper for the express server.
+ * Wrapper for the koa server.
  */
-export class InversifyExpressServer  {
+export class InversifyKoaServer {
 
-    private _router: express.Router;
+    private _router: Router;
     private _container: inversify.interfaces.Container;
-    private _app: express.Application;
+    private _app: Koa;
     private _configFn: interfaces.ConfigFunction;
     private _errorConfigFn: interfaces.ConfigFunction;
     private _routingConfig: interfaces.RoutingConfig;
 
     /**
-     * Wrapper for the express server.
+     * Wrapper for the koa server.
      *
      * @param container Container loaded with all controllers and their dependencies.
      */
     constructor(
         container: inversify.interfaces.Container,
-        customRouter?: express.Router,
+        customRouter?: Router,
         routingConfig?: interfaces.RoutingConfig,
-        customApp?: express.Application
+        customApp?: Koa
     ) {
         this._container = container;
-        this._router = customRouter || express.Router();
+        this._router = customRouter || new Router();
         this._routingConfig = routingConfig || {
             rootPath: DEFAULT_ROUTING_ROOT_PATH
         };
-        this._app = customApp || express();
+        this._app = customApp || new Koa();
     }
 
     /**
      * Sets the configuration function to be applied to the application.
-     * Note that the config function is not actually executed until a call to InversifyExpresServer.build().
+     * Note that the config function is not actually executed until a call to InversifyKoaServer.build().
      *
      * This method is chainable.
      *
      * @param fn Function in which app-level middleware can be registered.
      */
-    public setConfig(fn: interfaces.ConfigFunction): InversifyExpressServer {
+    public setConfig(fn: interfaces.ConfigFunction): InversifyKoaServer {
         this._configFn = fn;
         return this;
     }
 
     /**
      * Sets the error handler configuration function to be applied to the application.
-     * Note that the error config function is not actually executed until a call to InversifyExpresServer.build().
+     * Note that the error config function is not actually executed until a call to InversifyKoaServer.build().
      *
      * This method is chainable.
      *
      * @param fn Function in which app-level error handlers can be registered.
      */
-    public setErrorConfig(fn: interfaces.ConfigFunction): InversifyExpressServer {
+    public setErrorConfig(fn: interfaces.ConfigFunction): InversifyKoaServer {
         this._errorConfigFn = fn;
         return this;
     }
 
     /**
-     * Applies all routes and configuration to the server, returning the express application.
+     * Applies all routes and configuration to the server, returning the Koa application.
      */
-    public build(): express.Application {
+    public build(): Koa {
         // register server-level middleware before anything else
         if (this._configFn) {
             this._configFn.apply(undefined, [this._app]);
@@ -80,6 +81,10 @@ export class InversifyExpressServer  {
     }
 
     private registerControllers() {
+        // set prefix route in config rootpath
+        if (this._routingConfig.rootPath !== DEFAULT_ROUTING_ROOT_PATH) {
+            this._router.prefix(this._routingConfig.rootPath);
+        }
 
         let controllers: interfaces.Controller[] = this._container.getAll<interfaces.Controller>(TYPE.Controller);
 
@@ -101,7 +106,6 @@ export class InversifyExpressServer  {
             );
 
             if (controllerMetadata && methodMetadata) {
-                let router: express.Router = express.Router();
                 let controllerMiddleware = this.resolveMidleware(...controllerMetadata.middleware);
 
                 methodMetadata.forEach((metadata: interfaces.ControllerMethodMetadata) => {
@@ -109,7 +113,7 @@ export class InversifyExpressServer  {
                     if (parameterMetadata) {
                         paramList = parameterMetadata[metadata.key] || [];
                     }
-                    let handler: express.RequestHandler = this.handlerFactory(controllerMetadata.target.name, metadata.key, paramList);
+                    let handler = this.handlerFactory(controllerMetadata.target.name, metadata.key, paramList);
                     let routeMiddleware = this.resolveMidleware(...metadata.middleware);
                     this._router[metadata.method](
                         `${controllerMetadata.path}${metadata.path}`,
@@ -121,73 +125,71 @@ export class InversifyExpressServer  {
             }
         });
 
-        this._app.use(this._routingConfig.rootPath, this._router);
+        this._app.use(this._router.routes());
     }
 
-    private resolveMidleware(...middleware: interfaces.Middleware[]): express.RequestHandler[] {
+    private resolveMidleware(...middleware: interfaces.Middleware[]): interfaces.KoaRequestHandler[] {
         return middleware.map(middlewareItem => {
             try {
-                return this._container.get<express.RequestHandler>(middlewareItem);
+                return this._container.get<interfaces.KoaRequestHandler>(middlewareItem);
             } catch (_) {
-                return middlewareItem as express.RequestHandler;
+                return middlewareItem as interfaces.KoaRequestHandler;
             }
         });
     }
 
-    private handlerFactory(controllerName: any, key: string, parameterMetadata: interfaces.ParameterMetadata[]): express.RequestHandler {
-        return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-            let args = this.extractParameters(req, res, next, parameterMetadata);
-            let result: any = this._container.getNamed(TYPE.Controller, controllerName)[key](...args);
-            // try to resolve promise
+    private handlerFactory(controllerName: any, key: string,
+        parameterMetadata: interfaces.ParameterMetadata[]): interfaces.KoaRequestHandler {
+        // this function works like another top middleware to extract and inject arguments
+        return async (ctx: Router.IRouterContext, next: () => Promise<any>) => {
+            let args = this.extractParameters(ctx, next, parameterMetadata);
+            let result: any = await this._container.getNamed(TYPE.Controller, controllerName)[key](...args);
+
             if (result && result instanceof Promise) {
-
-                result.then((value: any) => {
-                    if (value && !res.headersSent) {
-                        res.send(value);
-                    }
-                })
-                .catch((error: any) => {
-                   next(error);
-                });
-
-            } else if (result && !res.headersSent) {
-                res.send(result);
+                // koa handle promises
+                return result;
+            } else if (result && !ctx.headerSent) {
+                ctx.body = result;
             }
         };
     }
 
-    private extractParameters(req: express.Request, res: express.Response, next: express.NextFunction,
+    private extractParameters(ctx: Router.IRouterContext, next: () => Promise<any>,
         params: interfaces.ParameterMetadata[]): any[] {
         let args = [];
         if (!params || !params.length) {
-            return [req, res, next];
+            return [ctx, next];
         }
         for (let item of params) {
 
             switch (item.type) {
-                default: args[item.index] = res; break; // response
-                case PARAMETER_TYPE.REQUEST: args[item.index] = this.getParam(req, null, item.parameterName); break;
+                default: args[item.index] = ctx; break; // response
+                case PARAMETER_TYPE.RESPONSE: args[item.index] = this.getParam(ctx.response, null, item.parameterName); break;
+                case PARAMETER_TYPE.REQUEST: args[item.index] = this.getParam(ctx.request, null, item.parameterName); break;
                 case PARAMETER_TYPE.NEXT: args[item.index] = next; break;
-                case PARAMETER_TYPE.PARAMS: args[item.index] = this.getParam(req, "params", item.parameterName); break;
-                case PARAMETER_TYPE.QUERY: args[item.index] = this.getParam(req, "query", item.parameterName); break;
-                case PARAMETER_TYPE.BODY: args[item.index] = this.getParam(req, "body", item.parameterName); break;
-                case PARAMETER_TYPE.HEADERS: args[item.index] = this.getParam(req, "headers", item.parameterName); break;
-                case PARAMETER_TYPE.COOKIES: args[item.index] = this.getParam(req, "cookies", item.parameterName); break;
+                case PARAMETER_TYPE.CTX: args[item.index] = this.getParam(ctx, null, item.parameterName); break;
+                case PARAMETER_TYPE.PARAMS: args[item.index] = this.getParam(ctx, "params", item.parameterName); break;
+                case PARAMETER_TYPE.QUERY: args[item.index] = this.getParam(ctx, "query", item.parameterName); break;
+                case PARAMETER_TYPE.BODY: args[item.index] = this.getParam(ctx.request, "body", item.parameterName); break;
+                case PARAMETER_TYPE.HEADERS: args[item.index] = this.getParam(ctx.request, "headers", item.parameterName); break;
+                case PARAMETER_TYPE.COOKIES: args[item.index] = this.getParam(ctx, "cookies", item.parameterName); break;
             }
 
         }
-        args.push(req, res, next);
+        args.push(ctx, next);
         return args;
     }
 
     private getParam(source: any, paramType: string, name: string) {
         let param = source[paramType] || source;
-        return param[name] || this.checkQueryParam(paramType, param);
+        return param[name] || this.checkQueryParam(paramType, param, name);
     }
 
-    private checkQueryParam(paramType: string, param: any) {
+    private checkQueryParam(paramType: string, param: any, name: string) {
         if (paramType === "query") {
             return undefined;
+        } if (paramType === "cookies") {
+            return param.get(name);
         } else {
             return param;
         }

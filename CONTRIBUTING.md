@@ -4,7 +4,7 @@
 
 1 Clone your fork of the repository
 ```
-$ git clone https://github.com/YOUR_USERNAME/inversify-express-utils.git
+$ git clone https://github.com/YOUR_USERNAME/inversify-koa-utils.git
 ```
 
 2 Install npm dependencies

@@ -3,20 +3,22 @@ import * as sinon from "sinon";
 import * as supertest from "supertest";
 import { expect } from "chai";
 import * as inversify from "inversify";
-import * as express from "express";
-import * as bodyParser from "body-parser";
-import * as cookieParser from "cookie-parser";
+import * as Koa from "koa";
+import * as Router from "koa-router";
+import * as bodyParser from "koa-bodyparser";
 import { injectable, Container } from "inversify";
 import { interfaces } from "../src/interfaces";
-import { InversifyExpressServer } from "../src/server";
-import { controller, httpMethod, all, httpGet, httpPost, httpPut, httpPatch,
-        httpHead, httpDelete, request, response, params, requestParam,
-        requestBody, queryParam, requestHeaders, cookies,
-        next } from "../src/decorators";
+import { InversifyKoaServer } from "../src/server";
+import {
+    controller, httpMethod, all, httpGet, httpPost, httpPut, httpPatch,
+    httpHead, httpDelete, request, response, params, requestParam,
+    requestBody, queryParam, requestHeaders, cookies,
+    next, context
+} from "../src/decorators";
 import { TYPE, PARAMETER_TYPE } from "../src/constants";
 
 describe("Integration Tests:", () => {
-    let server: InversifyExpressServer;
+    let server: InversifyKoaServer;
     let container: inversify.interfaces.Container;
 
     beforeEach((done) => {
@@ -27,99 +29,106 @@ describe("Integration Tests:", () => {
 
     describe("Routing & Request Handling:", () => {
 
-        it("should work for async controller methods", (done) => {
+        it("should work for basic koa cascading (using async/await)", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) {
-                    return new Promise(((resolve) => {
-                        setTimeout(resolve, 100, "GET");
-                    }));
+                @httpGet("/") public async getTest(ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
+                    const start = new Date();
+                    await nextFunc();
+                    const ms = new Date().valueOf() - start.valueOf();
+                    ctx.set("X-Response-Time", `${ms}ms`);
+                }
+
+                @httpGet("/") public getTest2(ctx: Router.IRouterContext) {
+                    ctx.body = "Hello World";
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
-                .expect(200, "GET", done);
+                .expect(200, "Hello World", done);
         });
 
-        it("should work for async controller methods that fails", (done) => {
+        it("should work for basic koa cascading (using promises)", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) {
-                    return new Promise(((resolve, reject) => {
-                        setTimeout(reject, 100, "GET");
-                    }));
+                @httpGet("/") public async getTest(ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
+                    const start = new Date();
+                    return nextFunc().then(() => {
+                        const ms = new Date().valueOf() - start.valueOf();
+                        ctx.set("X-Response-Time", `${ms}ms`);
+                        ctx.body = "Hello World";
+                    });
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
-                .expect(500, done);
+                .expect(200, "Hello World", done);
         });
 
-
-        it ("should work for methods which call nextFunc()", (done) => {
+        it("should work for methods which call nextFunc()", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response, nextFunc: express.NextFunction) {
+                @httpGet("/") public async getTest(ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
                     nextFunc();
                 }
 
-                @httpGet("/") public getTest2(req: express.Request, res: express.Response) {
-                    return "GET";
+                @httpGet("/") public getTest2(ctx: Router.IRouterContext) {
+                    ctx.body = "GET";
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "GET", done);
         });
 
 
-        it ("should work for async methods which call nextFunc()", (done) => {
+        it("should work for async methods which call nextFunc()", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response, nextFunc: express.NextFunction) {
+                @httpGet("/") public getTest(ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
                     return new Promise(((resolve) => {
                         setTimeout(() => {
                             nextFunc();
                             resolve();
-                        }, 100, "GET");
+                        }, 100);
                     }));
                 }
 
-                @httpGet("/") public getTest2(req: express.Request, res: express.Response) {
-                    return "GET";
+                @httpGet("/") public getTest2(ctx: Router.IRouterContext) {
+                    ctx.body = "GET";
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "GET", done);
         });
 
 
-        it ("should work for async methods called by nextFunc()", (done) => {
+        it("should work for async methods called by nextFunc()", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response, nextFunc: express.NextFunction) {
-                    nextFunc();
+                @httpGet("/") public async getTest(ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
+                    await nextFunc();
                 }
 
-                @httpGet("/") public getTest2(req: express.Request, res: express.Response) {
+                @httpGet("/") public getTest2(ctx: Router.IRouterContext) {
                     return new Promise(((resolve) => {
                         setTimeout(resolve, 100, "GET");
                     }));
@@ -127,8 +136,8 @@ describe("Integration Tests:", () => {
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "GET", done);
         });
@@ -138,17 +147,17 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
-                @httpPost("/") public postTest(req: express.Request, res: express.Response) { res.send("POST"); }
-                @httpPut("/") public putTest(req: express.Request, res: express.Response) { res.send("PUT"); }
-                @httpPatch("/") public patchTest(req: express.Request, res: express.Response) { res.send("PATCH"); }
-                @httpHead("/") public headTest(req: express.Request, res: express.Response) { res.send("HEAD"); }
-                @httpDelete("/") public deleteTest(req: express.Request, res: express.Response) { res.send("DELETE"); }
+                @httpGet("/") public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
+                @httpPost("/") public postTest(ctx: Router.IRouterContext) { ctx.body = "POST"; }
+                @httpPut("/") public putTest(ctx: Router.IRouterContext) { ctx.body = "PUT"; }
+                @httpPatch("/") public patchTest(ctx: Router.IRouterContext) { ctx.body = "PATCH"; }
+                @httpHead("/") public headTest(ctx: Router.IRouterContext) { ctx.body = "HEAD"; }
+                @httpDelete("/") public deleteTest(ctx: Router.IRouterContext) { ctx.body = "DELETE"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             let deleteFn = () => { agent.delete("/").expect(200, "DELETE", done); };
             let head = () => { agent.head("/").expect(200, "HEAD", deleteFn); };
@@ -165,60 +174,60 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpMethod("propfind", "/") public getTest(req: express.Request, res: express.Response) { res.send("PROPFIND"); }
+                @httpMethod("propfind", "/") public getTest(ctx: Router.IRouterContext) { ctx.body = "PROPFIND"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .propfind("/")
                 .expect(200, "PROPFIND", done);
         });
 
 
         it("should use returned values as response", (done) => {
-            let result = {"hello": "world"};
+            let result = { "hello": "world" };
 
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) { return result; }
+                @httpGet("/") public getTest(ctx: Router.IRouterContext) { return result; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, JSON.stringify(result), done);
         });
 
         it("should use custom router passed from configuration", () => {
             @injectable()
-            @controller("/CaseSensitive")
+            @controller("/")
             class TestController {
-                @httpGet("/Endpoint") public get() {
+                @httpGet("endpoint") public get() {
                     return "Such Text";
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            const customRouter = express.Router({
-                caseSensitive: true
+            const customRouter = new Router({
+                prefix: "/api"
             });
 
-            server = new InversifyExpressServer(container, customRouter);
-            const app = server.build();
+            server = new InversifyKoaServer(container, customRouter);
+            const app = server.build().listen();
 
             const expectedSuccess = supertest(app)
-                .get("/CaseSensitive/Endpoint")
+                .get("/api/endpoint")
                 .expect(200, "Such Text");
 
             const expectedNotFound1 = supertest(app)
-                .get("/casesensitive/endpoint")
+                .get("/otherpath/endpoint")
                 .expect(404);
 
             const expectedNotFound2 = supertest(app)
-                .get("/CaseSensitive/endpoint")
+                .get("/endpoint")
                 .expect(404);
 
             return Promise.all([
@@ -239,9 +248,9 @@ describe("Integration Tests:", () => {
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container, null, { rootPath: "/api/v1" });
+            server = new InversifyKoaServer(container, null, { rootPath: "/api/v1" });
 
-            return supertest(server.build())
+            return supertest(server.build().listen())
                 .get("/api/v1/ping/endpoint")
                 .expect(200, "pong");
         });
@@ -251,15 +260,15 @@ describe("Integration Tests:", () => {
     describe("Middleware:", () => {
         let result: string;
         let middleware: any = {
-            a: function (req: express.Request, res: express.Response, nextFunc: express.NextFunction) {
+            a: function (ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
                 result += "a";
                 nextFunc();
             },
-            b: function (req: express.Request, res: express.Response, nextFunc: express.NextFunction) {
+            b: function (ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
                 result += "b";
                 nextFunc();
             },
-            c: function (req: express.Request, res: express.Response, nextFunc: express.NextFunction) {
+            c: function (ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
                 result += "c";
                 nextFunc();
             }
@@ -280,12 +289,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/", spyA, spyB, spyC) public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                @httpGet("/", spyA, spyB, spyC) public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.get("/")
                 .expect(200, "GET", function () {
@@ -301,12 +310,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpPost("/", spyA, spyB, spyC) public postTest(req: express.Request, res: express.Response) { res.send("POST"); }
+                @httpPost("/", spyA, spyB, spyC) public postTest(ctx: Router.IRouterContext) { ctx.body = "POST"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.post("/")
                 .expect(200, "POST", function () {
@@ -322,12 +331,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpPut("/", spyA, spyB, spyC) public postTest(req: express.Request, res: express.Response) { res.send("PUT"); }
+                @httpPut("/", spyA, spyB, spyC) public postTest(ctx: Router.IRouterContext) { ctx.body = "PUT"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.put("/")
                 .expect(200, "PUT", function () {
@@ -343,12 +352,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpPatch("/", spyA, spyB, spyC) public postTest(req: express.Request, res: express.Response) { res.send("PATCH"); }
+                @httpPatch("/", spyA, spyB, spyC) public postTest(ctx: Router.IRouterContext) { ctx.body = "PATCH"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.patch("/")
                 .expect(200, "PATCH", function () {
@@ -364,12 +373,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpHead("/", spyA, spyB, spyC) public postTest(req: express.Request, res: express.Response) { res.send("HEAD"); }
+                @httpHead("/", spyA, spyB, spyC) public postTest(ctx: Router.IRouterContext) { ctx.body = "HEAD"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.head("/")
                 .expect(200, "HEAD", function () {
@@ -385,12 +394,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpDelete("/", spyA, spyB, spyC) public postTest(req: express.Request, res: express.Response) { res.send("DELETE"); }
+                @httpDelete("/", spyA, spyB, spyC) public postTest(ctx: Router.IRouterContext) { ctx.body = "DELETE"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.delete("/")
                 .expect(200, "DELETE", function () {
@@ -406,12 +415,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @all("/", spyA, spyB, spyC) public postTest(req: express.Request, res: express.Response) { res.send("ALL"); }
+                @all("/", spyA, spyB, spyC) public postTest(ctx: Router.IRouterContext) { ctx.body = "ALL"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let agent = supertest(server.build());
+            server = new InversifyKoaServer(container);
+            let agent = supertest(server.build().listen());
 
             agent.get("/")
                 .expect(200, "ALL", function () {
@@ -428,12 +437,12 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/", spyA, spyB, spyC)
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                @httpGet("/") public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "GET", function () {
                     expect(spyA.calledOnce).to.eqls(true);
@@ -449,19 +458,19 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                @httpGet("/") public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
+            server = new InversifyKoaServer(container);
 
             server.setConfig((app) => {
-               app.use(spyA);
-               app.use(spyB);
-               app.use(spyC);
+                app.use(spyA);
+                app.use(spyB);
+                app.use(spyC);
             });
 
-            supertest(server.build())
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "GET", function () {
                     expect(spyA.calledOnce).to.eqls(true);
@@ -477,17 +486,17 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/", spyB)
             class TestController {
-                @httpGet("/", spyC) public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                @httpGet("/", spyC) public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
+            server = new InversifyKoaServer(container);
 
             server.setConfig((app) => {
-               app.use(spyA);
+                app.use(spyA);
             });
 
-            supertest(server.build())
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "GET", function () {
                     expect(spyA.calledOnce).to.eqls(true);
@@ -505,16 +514,16 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/", symbolId, strId)
             class TestController {
-                @httpGet("/") public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                @httpGet("/") public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
 
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
-            container.bind<express.RequestHandler>(symbolId).toConstantValue(spyA);
-            container.bind<express.RequestHandler>(strId).toConstantValue(spyB);
+            container.bind<interfaces.KoaRequestHandler>(symbolId).toConstantValue(spyA);
+            container.bind<interfaces.KoaRequestHandler>(strId).toConstantValue(spyB);
 
-            server = new InversifyExpressServer(container);
+            server = new InversifyKoaServer(container);
 
-            let agent = supertest(server.build());
+            let agent = supertest(server.build().listen());
 
             return agent.get("/")
                 .expect(200, "GET")
@@ -533,16 +542,16 @@ describe("Integration Tests:", () => {
             @controller("/")
             class TestController {
                 @httpGet("/", symbolId, strId)
-                public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
 
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
-            container.bind<express.RequestHandler>(symbolId).toConstantValue(spyA);
-            container.bind<express.RequestHandler>(strId).toConstantValue(spyB);
+            container.bind<interfaces.KoaRequestHandler>(symbolId).toConstantValue(spyA);
+            container.bind<interfaces.KoaRequestHandler>(strId).toConstantValue(spyB);
 
-            server = new InversifyExpressServer(container);
+            server = new InversifyKoaServer(container);
 
-            let agent = supertest(server.build());
+            let agent = supertest(server.build().listen());
 
             return agent.get("/")
                 .expect(200, "GET")
@@ -561,16 +570,16 @@ describe("Integration Tests:", () => {
             @controller("/", symbolId)
             class TestController {
                 @httpGet("/", strId)
-                public getTest(req: express.Request, res: express.Response) { res.send("GET"); }
+                public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
             }
 
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
-            container.bind<express.RequestHandler>(symbolId).toConstantValue(spyA);
-            container.bind<express.RequestHandler>(strId).toConstantValue(spyB);
+            container.bind<interfaces.KoaRequestHandler>(symbolId).toConstantValue(spyA);
+            container.bind<interfaces.KoaRequestHandler>(strId).toConstantValue(spyB);
 
-            server = new InversifyExpressServer(container);
+            server = new InversifyKoaServer(container);
 
-            let agent = supertest(server.build());
+            let agent = supertest(server.build().listen());
 
             return agent.get("/")
                 .expect(200, "GET")
@@ -587,14 +596,14 @@ describe("Integration Tests:", () => {
             @controller("/")
             class TestController {
                 // tslint:disable-next-line:max-line-length
-                @httpGet(":id") public getTest(@requestParam("id") id: string, req: express.Request, res: express.Response) {
+                @httpGet(":id") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
                     return id;
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/foo")
                 .expect(200, "foo", done);
         });
@@ -603,30 +612,46 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet(":id") public getTest(@request() req: express.Request) {
-                    return req.params.id;
+                @httpGet(":id") public getTest( @request() req: Koa.Request) {
+                    return req.url;
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/GET")
-                .expect(200, "GET", done);
+                .expect(200, "/GET", done);
         });
 
         it("should bind a method parameter to the response object", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(@response() res: express.Response) {
-                    return res.send("foo");
+                @httpGet("/") public getTest( @response() res: Koa.Response) {
+                    return res.body = "foo";
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
+                .get("/")
+                .expect(200, "foo", done);
+        });
+
+        it("should bind a method parameter to the context object", (done) => {
+            @injectable()
+            @controller("/")
+            class TestController {
+                @httpGet("/") public getTest( @context() ctx: Koa.Context) {
+                    return ctx.body = "foo";
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "foo", done);
         });
@@ -635,14 +660,14 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(@queryParam("id") id: string) {
+                @httpGet("/") public getTest( @queryParam("id") id: string) {
                     return id;
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .query("id=foo")
                 .expect(200, "foo", done);
@@ -652,18 +677,18 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpPost("/") public getTest(@requestBody() reqBody: string) {
+                @httpPost("/") public getTest( @requestBody() reqBody: string) {
                     return reqBody;
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            let body = {foo: "bar"};
+            server = new InversifyKoaServer(container);
             server.setConfig((app) => {
-                app.use(bodyParser.json());
+                app.use(bodyParser());
             });
-            supertest(server.build())
+            let body = { foo: "bar" };
+            supertest(server.build().listen())
                 .post("/")
                 .send(body)
                 .expect(200, body, done);
@@ -673,14 +698,14 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(@requestHeaders("testhead") headers: any) {
+                @httpGet("/") public getTest( @requestHeaders("testhead") headers: any) {
                     return headers;
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .set("TestHead", "foo")
                 .expect(200, "foo", done);
@@ -690,36 +715,35 @@ describe("Integration Tests:", () => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getCookie(@cookies("cookie") cookie: any, req: express.Request, res: express.Response) {
+                @httpGet("/") public getCookie( @cookies("cookie") cookie: any, ctx: Router.IRouterContext) {
                     if (cookie) {
-                        res.send(cookie);
+                        ctx.body = cookie;
                     } else {
-                        res.send(":(");
+                        ctx.body = ":(";
                     }
                 }
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
+            server = new InversifyKoaServer(container);
             server.setConfig((app) => {
-                app.use(cookieParser());
-                app.use(function (req, res, nextFunc) {
-                    res.cookie("cookie", "hey");
+                app.use(function (ctx, nextFunc) {
+                    ctx.cookies.set("cookie", "hey", { httpOnly: false });
                     nextFunc();
                 });
             });
-            supertest(server.build())
+            supertest(server.build().listen())
                 .get("/")
-                .expect("set-cookie", "cookie=hey; Path=/", done);
+                .expect("set-cookie", "cookie=hey; path=/", done);
         });
 
         it("should bind a method parameter to the next function", (done) => {
             @injectable()
             @controller("/")
             class TestController {
-                @httpGet("/") public getTest(@next() nextFunc: any) {
+                @httpGet("/") public async getTest( @next() nextFunc: any) {
                     let err = new Error("foo");
-                    return nextFunc();
+                    await nextFunc();
                 }
                 @httpGet("/") public getResult() {
                     return "foo";
@@ -727,8 +751,8 @@ describe("Integration Tests:", () => {
             }
             container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
 
-            server = new InversifyExpressServer(container);
-            supertest(server.build())
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
                 .get("/")
                 .expect(200, "foo", done);
         });

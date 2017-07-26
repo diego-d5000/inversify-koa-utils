@@ -1,4 +1,4 @@
-import { InversifyExpressServer } from "./server";
+import { InversifyKoaServer } from "./server";
 import { controller, httpMethod, httpGet, httpPut, httpPost, httpPatch,
         httpHead, all, httpDelete, request, response, requestParam, queryParam,
         requestBody, requestHeaders, cookies, next } from "./decorators";
@@ -7,7 +7,7 @@ import { interfaces } from "./interfaces";
 
 export {
     interfaces,
-    InversifyExpressServer,
+    InversifyKoaServer,
     controller,
     httpMethod,
     httpGet,

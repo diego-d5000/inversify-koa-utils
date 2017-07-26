@@ -1,4 +1,3 @@
-import * as express from "express";
 import { interfaces } from "./interfaces";
 import { METADATA_KEY, PARAMETER_TYPE } from "./constants";
 
@@ -60,6 +59,8 @@ export const requestBody = paramDecoratorFactory(PARAMETER_TYPE.BODY);
 export const requestHeaders = paramDecoratorFactory(PARAMETER_TYPE.HEADERS);
 export const cookies = paramDecoratorFactory(PARAMETER_TYPE.COOKIES);
 export const next = paramDecoratorFactory(PARAMETER_TYPE.NEXT);
+export const context = paramDecoratorFactory(PARAMETER_TYPE.CTX);
+
 
 function paramDecoratorFactory(parameterType: PARAMETER_TYPE): (name?: string) => ParameterDecorator {
     return function (name?: string): ParameterDecorator {
