@@ -237,6 +237,9 @@ Binds a method parameter to the request headers.
 ### `@cookies()`
 Binds a method parameter to the request cookies.
 
+### `@context()`
+Binds a method parameter to the koa context object.
+
 ### `@next()`
 Binds a method parameter to the next() function.
 
