@@ -1,6 +1,6 @@
 # inversify-koa-utils
 
-[![Join the chat at https://gitter.im/inversify/InversifyJS](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/inversify/InversifyJS?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![inversify chat https://gitter.im/inversify/InversifyJS](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/inversify/InversifyJS?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Build Status](https://secure.travis-ci.org/diego-d5000/inversify-koa-utils.svg?branch=master)](https://travis-ci.org/diego-d5000/inversify-koa-utils)
 [![Test Coverage](https://codeclimate.com/github/diego-d5000/inversify-koa-utils/badges/coverage.svg)](https://codeclimate.com/github/diego-d5000/inversify-koa-utils/coverage)
 [![npm version](https://badge.fury.io/js/inversify-koa-utils.svg)](http://badge.fury.io/js/inversify-koa-utils)
