@@ -243,6 +243,57 @@ Binds a method parameter to the koa context object.
 ### `@next()`
 Binds a method parameter to the next() function.
 
+## BaseMiddleware
+
+Extending `BaseMiddleware` allow us to inject dependencies 
+in Koa middleware function.
+
+```ts
+import { BaseMiddleware } from "inversify-koa-utils";
+
+@injectable()
+class LoggerMiddleware extends BaseMiddleware {
+    
+    @inject(TYPES.Logger) private readonly _logger: Logger;
+
+    public handler(ctx: Route.IRouteContext, next: () => Promise<any>): any {
+        this._logger.info(ctx);
+        await next();
+    }
+}
+```
+
+We also need to declare some type bindings:
+
+```ts
+const container = new Container();
+
+container.bind<Logger>(TYPES.Logger)
+        .to(Logger);
+
+container.bind<LoggerMiddleware>(TYPES.LoggerMiddleware)
+         .to(LoggerMiddleware);
+
+```
+
+We can then inject `TYPES.LoggerMiddleware` into one of our controllers. 
+
+```ts
+@injectable()
+@controller("/")
+class MyController extends BaseHttpController {
+
+    @httpGet("/", TYPES.LoggerMiddleware)
+    public async getResource() {
+        // controller logic
+    }
+}
+
+container.bind<interfaces.Controller>(TYPE.Controller)
+         .to(MyController)
+         .whenTargetNamed("MyController");
+```
+
 ## License
 
 License under the MIT License (MIT)
