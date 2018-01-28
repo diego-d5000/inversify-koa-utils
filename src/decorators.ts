@@ -1,5 +1,6 @@
 import { interfaces } from "./interfaces";
-import { METADATA_KEY, PARAMETER_TYPE } from "./constants";
+import { inject } from "inversify";
+import { TYPE, METADATA_KEY, PARAMETER_TYPE } from "./constants";
 
 export function controller(path: string, ...middleware: interfaces.Middleware[]) {
     return function (target: any) {

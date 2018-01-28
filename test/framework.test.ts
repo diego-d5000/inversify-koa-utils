@@ -6,7 +6,7 @@ import * as inversify from "inversify";
 import * as Koa from "koa";
 import * as Router from "koa-router";
 import * as bodyParser from "koa-bodyparser";
-import { injectable, Container } from "inversify";
+import { injectable, inject, Container } from "inversify";
 import { interfaces } from "../src/interfaces";
 import { InversifyKoaServer } from "../src/server";
 import {
@@ -16,6 +16,7 @@ import {
     next, context
 } from "../src/decorators";
 import { TYPE, PARAMETER_TYPE } from "../src/constants";
+import { BaseMiddleware } from "../src/base_middleware";
 
 describe("Integration Tests:", () => {
     let server: InversifyKoaServer;
@@ -449,6 +450,46 @@ describe("Integration Tests:", () => {
                     expect(spyB.calledOnce).to.eqls(true);
                     expect(spyC.calledOnce).to.eqls(true);
                     expect(result).to.equal("abc");
+                    done();
+                });
+        });
+
+
+        it("should call injected controller-level BaseMiddleware correctly", (done) => {
+
+            const serviceType = Symbol.for("TestService");
+            @injectable()
+            class TestService {}
+            container.bind<TestService>(serviceType).to(TestService);
+
+            const middlewareType = Symbol.for("TestMiddleware");
+            @injectable()
+            class TestMiddleware extends BaseMiddleware {
+                @inject(serviceType)
+                private readonly testService: TestService;
+
+                public handler(ctx: Router.IRouterContext, nextFunc: () => Promise<any>) {
+                    result += "d";
+                    nextFunc();
+                }
+            }
+            container.bind<TestMiddleware>(middlewareType).to(TestMiddleware);
+
+            @injectable()
+            @controller("/", spyA, spyB, spyC, middlewareType)
+            class TestController {
+                @httpGet("/") public getTest(ctx: Router.IRouterContext) { ctx.body = "GET"; }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
+                .get("/")
+                .expect(200, "GET", function () {
+                    expect(spyA.calledOnce).to.eqls(true);
+                    expect(spyB.calledOnce).to.eqls(true);
+                    expect(spyC.calledOnce).to.eqls(true);
+                    expect(result).to.equal("abcd");
                     done();
                 });
         });
