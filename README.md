@@ -243,6 +243,87 @@ Binds a method parameter to the koa context object.
 ### `@next()`
 Binds a method parameter to the next() function.
 
+## AuthProvider
+
+You can provide a custom `AuthProvider` to create and provida a principal for the current request.
+
+```ts
+const server = new InversifyKoaServer(
+    container, null, null, null, CustomAuthProvider
+);
+```
+
+We need to implement the `AuthProvider` interface.
+
+The `AuthProvider` allow us to get an user (`Principal`):
+
+```ts
+import * as Router from "koa-router";
+import { injectable, inject } from "inversify";
+import { interfaces } from "inversify-koa-utils";
+
+const authService = inject("AuthService");
+
+@injectable()
+class CustomAuthProvider implements interfaces.AuthProvider {
+
+    @authService private readonly _authService: AuthService;
+
+    public async getUser(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+        const token = req.headers["x-auth-token"]
+        const user = await this._authService.getUser(token);
+        const principal = new Principal(user);
+        return principal;
+    }
+
+}
+```
+
+We also need to implement the Principal interface.
+The `Principal` interface allow us to:
+
+- Access the details of an user
+- Check if it has access to certain resource
+- Check if it is authenticated
+- Check if it is in an user role
+
+```ts
+class Principal implements interfaces.Principal {
+    public details: any;
+    public constrcutor(details: any) {
+        this.details = details;
+    }
+    public isAuthenticated(): Promise<boolean> {
+        return Promise.resolve(true);
+    }
+    public isResourceOwner(resourceId: any): Promise<boolean> {
+        return Promise.resolve(resourceId === 1111);
+    }
+    public isInRole(role: string): Promise<boolean> {
+        return Promise.resolve(role === "admin");
+    }
+}
+```
+
+We can then access the current principal via the context state:
+
+```ts
+@controller("/")
+class UserDetailsController extends BaseHttpController {
+
+    @inject("AuthService") private readonly _authService: AuthService;
+
+    @httpGet("/")
+    public async getUserDetails(@context() ctx: Router.IRouterContext) {
+        if (this.context.principal.isAuthenticated()) {
+            return this._authService.getUserDetails(this.context.principal.details.id);
+        } else {
+            throw new Error();
+        }
+    }
+}
+```
+
 ## BaseMiddleware
 
 Extending `BaseMiddleware` allow us to inject dependencies 
