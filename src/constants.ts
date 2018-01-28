@@ -1,4 +1,5 @@
 const TYPE = {
+    AuthProvider: Symbol.for("AuthProvider"),
     Controller: Symbol.for("Controller")
 };
 

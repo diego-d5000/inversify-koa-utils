@@ -16,6 +16,7 @@ export class InversifyKoaServer {
     private _configFn: interfaces.ConfigFunction;
     private _errorConfigFn: interfaces.ConfigFunction;
     private _routingConfig: interfaces.RoutingConfig;
+    private _AuthProvider: { new(): interfaces.AuthProvider};
 
     /**
      * Wrapper for the koa server.
@@ -26,7 +27,8 @@ export class InversifyKoaServer {
         container: inversify.interfaces.Container,
         customRouter?: Router,
         routingConfig?: interfaces.RoutingConfig,
-        customApp?: Koa
+        customApp?: Koa,
+        authProvider?: { new(): interfaces.AuthProvider} | null
     ) {
         this._container = container;
         this._router = customRouter || new Router();
@@ -34,6 +36,11 @@ export class InversifyKoaServer {
             rootPath: DEFAULT_ROUTING_ROOT_PATH
         };
         this._app = customApp || new Koa();
+        if (authProvider) {
+            this._AuthProvider = authProvider;
+            container.bind<interfaces.AuthProvider>(TYPE.AuthProvider)
+                     .to(this._AuthProvider);
+        }
     }
 
     /**
@@ -66,6 +73,14 @@ export class InversifyKoaServer {
      * Applies all routes and configuration to the server, returning the Koa application.
      */
     public build(): Koa {
+        const _self = this;
+
+        // at very first middleware set the principal to the context state
+        this._app.use(async (ctx: Router.IRouterContext, next: () => Promise<any>) => {
+            ctx.state.principal = await _self._getCurrentPrincipal(ctx);
+            await next();
+        });
+
         // register server-level middleware before anything else
         if (this._configFn) {
             this._configFn.apply(undefined, [this._app]);
@@ -205,6 +220,20 @@ export class InversifyKoaServer {
             return param.get(name);
         } else {
             return param;
+        }
+    }
+
+    private async _getCurrentPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+        if (this._AuthProvider !== undefined) {
+            const authProvider = this._container.get<interfaces.AuthProvider>(TYPE.AuthProvider);
+            return await authProvider.getPrincipal(ctx);
+        } else {
+            return Promise.resolve<interfaces.Principal>({
+                details: null,
+                isAuthenticated: () => Promise.resolve(false),
+                isInRole: (role: string) => Promise.resolve(false),
+                isResourceOwner: (resourceId: any) => Promise.resolve(false)
+            });
         }
     }
 }

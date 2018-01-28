@@ -46,6 +46,19 @@ namespace interfaces {
         (ctx: Router.IRouterContext, next: () => Promise<any>): any;
     }
 
+    export interface Principal {
+        details: any;
+        isAuthenticated(): Promise<boolean>;
+        // Allows content-based auth
+        isResourceOwner(resourceId: any): Promise<boolean>;
+        // Allows role-based auth
+        isInRole(role: string): Promise<boolean>;
+    }
+
+    export interface AuthProvider {
+        getPrincipal(ctx: Router.IRouterContext): Promise<Principal>;
+    }
+
 }
 
 export { interfaces };

@@ -255,6 +255,35 @@ describe("Integration Tests:", () => {
                 .get("/api/v1/ping/endpoint")
                 .expect(200, "pong");
         });
+
+        it("Should set the principal from auth provider into koa context", () => {
+            let myPrincipal: interfaces.Principal = {
+                details: null,
+                isAuthenticated: () => Promise.resolve(false),
+                isInRole: (role: string) => Promise.resolve(false),
+                isResourceOwner: (resourceId: any) => Promise.resolve(false)
+            };
+            @injectable()
+            class MyAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    return Promise.resolve(myPrincipal);
+                }
+            }
+            @injectable()
+            @controller("/ping")
+            class TestController {
+                @httpGet("/endpoint") public get(@context() ctx: Router.IRouterContext) {
+                    return ctx.state.principal === myPrincipal ? "correct principal" : "wrong principal";
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, MyAuthProvider);
+
+            return supertest(server.build().listen())
+                .get("/ping/endpoint")
+                .expect(200, "correct principal");
+        });
     });
 
 
