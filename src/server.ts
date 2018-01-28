@@ -3,6 +3,7 @@ import * as Router from "koa-router";
 import * as inversify from "inversify";
 import { interfaces } from "./interfaces";
 import { TYPE, METADATA_KEY, DEFAULT_ROUTING_ROOT_PATH, PARAMETER_TYPE } from "./constants";
+import { BaseMiddleware } from "./base_middleware";
 
 /**
  * Wrapper for the koa server.
@@ -106,7 +107,7 @@ export class InversifyKoaServer {
             );
 
             if (controllerMetadata && methodMetadata) {
-                let controllerMiddleware = this.resolveMidleware(...controllerMetadata.middleware);
+                let controllerMiddleware = this.resolveMiddleware(...controllerMetadata.middleware);
 
                 methodMetadata.forEach((metadata: interfaces.ControllerMethodMetadata) => {
                     let paramList: interfaces.ParameterMetadata[] = [];
@@ -114,7 +115,7 @@ export class InversifyKoaServer {
                         paramList = parameterMetadata[metadata.key] || [];
                     }
                     let handler = this.handlerFactory(controllerMetadata.target.name, metadata.key, paramList);
-                    let routeMiddleware = this.resolveMidleware(...metadata.middleware);
+                    let routeMiddleware = this.resolveMiddleware(...metadata.middleware);
                     this._router[metadata.method](
                         `${controllerMetadata.path}${metadata.path}`,
                         ...controllerMiddleware,
@@ -128,11 +129,23 @@ export class InversifyKoaServer {
         this._app.use(this._router.routes());
     }
 
-    private resolveMidleware(...middleware: interfaces.Middleware[]): interfaces.KoaRequestHandler[] {
+    private resolveMiddleware(...middleware: interfaces.Middleware[]): interfaces.KoaRequestHandler[] {
         return middleware.map(middlewareItem => {
-            try {
-                return this._container.get<interfaces.KoaRequestHandler>(middlewareItem);
-            } catch (_) {
+            if (this._container.isBound(middlewareItem)) {
+
+                type MiddlewareInstance = interfaces.KoaRequestHandler | BaseMiddleware;
+                const middlewareInstance = this._container.get<MiddlewareInstance>(middlewareItem);
+
+                if (middlewareInstance instanceof BaseMiddleware) {
+                    const _self = this;
+                    return function(ctx: Router.IRouterContext, next: () => Promise<any>) {
+                        return middlewareInstance.handler(ctx, next);
+                    };
+                } else {
+                    return middlewareInstance;
+                }
+
+            } else {
                 return middlewareItem as interfaces.KoaRequestHandler;
             }
         });
