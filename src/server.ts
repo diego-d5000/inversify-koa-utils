@@ -121,6 +121,16 @@ export class InversifyKoaServer {
                 controller.constructor
             );
 
+            let authorizeAllMetadata: interfaces.AuthorizeAllMetadata = Reflect.getOwnMetadata(
+                METADATA_KEY.authorizeAll,
+                controller.constructor
+            );
+
+            let authorizeMetadata: interfaces.AuthorizeMetadata[] = Reflect.getOwnMetadata(
+                METADATA_KEY.authorize,
+                controller.constructor
+            );
+
             if (controllerMetadata && methodMetadata) {
                 let controllerMiddleware = this.resolveMiddleware(...controllerMetadata.middleware);
 
@@ -129,12 +139,24 @@ export class InversifyKoaServer {
                     if (parameterMetadata) {
                         paramList = parameterMetadata[metadata.key] || [];
                     }
+
+                    let authorizationHandler = [];
+                    if (authorizeAllMetadata) {
+                        let requiredRoles = authorizeAllMetadata.requiredRoles;
+                        authorizationHandler.push(this.authorizationHandlerFactory(requiredRoles));
+                    }
+                    if (authorizeMetadata) {
+                        let requiredRoles = authorizeMetadata[metadata.key].requiredRoles;
+                        authorizationHandler.push(this.authorizationHandlerFactory(requiredRoles));
+                    }
+
                     let handler = this.handlerFactory(controllerMetadata.target.name, metadata.key, paramList);
                     let routeMiddleware = this.resolveMiddleware(...metadata.middleware);
                     this._router[metadata.method](
                         `${controllerMetadata.path}${metadata.path}`,
                         ...controllerMiddleware,
                         ...routeMiddleware,
+                        ...authorizationHandler,
                         handler
                     );
                 });
@@ -142,6 +164,37 @@ export class InversifyKoaServer {
         });
 
         this._app.use(this._router.routes());
+    }
+
+    private authorizationHandlerFactory(requiredRoles: string[]): interfaces.KoaRequestHandler {
+            return async (ctx: Router.IRouterContext, next: () => Promise<any>) => {
+                let isAuthenticated = false;
+                let isAuthorized = false;
+
+                if (ctx.state.principal) {
+                    let principal: interfaces.Principal = ctx.state.principal;
+
+                    isAuthenticated = await principal.isAuthenticated();
+                    if (isAuthenticated) {
+
+                        isAuthorized = true;
+                        for (let requiredRole of requiredRoles) {
+                            let isInRole = await principal.isInRole(requiredRole);
+                            if (!isInRole) {
+                                isAuthorized = false;
+                            }
+                        }
+                    }
+                }
+
+                if (!isAuthenticated) {
+                    ctx.throw(401);
+                } else if (!isAuthorized) {
+                    ctx.throw(403);
+                } else {
+                    return await next();
+                }
+            };
     }
 
     private resolveMiddleware(...middleware: interfaces.Middleware[]): interfaces.KoaRequestHandler[] {

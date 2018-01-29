@@ -52,6 +52,28 @@ export function httpMethod(method: string, path: string, ...middleware: interfac
     };
 }
 
+export function authorizeAll(...requiredRoles: string[]) {
+    return function (target: any) {
+        let metadata: interfaces.AuthorizeAllMetadata = {requiredRoles, target};
+        Reflect.defineMetadata(METADATA_KEY.authorizeAll, metadata, target);
+    };
+}
+
+export function authorize(...requiredRoles: string[]): interfaces.HandlerDecorator {
+    return function (target: any, key: string, value: any) {
+        let metadata: interfaces.AuthorizeMetadata = {requiredRoles, target, key};
+        let metadataList: interfaces.AuthorizeMetadata[] = [];
+
+        if (!Reflect.hasOwnMetadata(METADATA_KEY.authorize, target.constructor)) {
+            Reflect.defineMetadata(METADATA_KEY.authorize, metadataList, target.constructor);
+        } else {
+            metadataList = Reflect.getOwnMetadata(METADATA_KEY.authorize, target.constructor);
+        }
+
+        metadataList[key] = metadata;
+    };
+}
+
 export const request = paramDecoratorFactory(PARAMETER_TYPE.REQUEST);
 export const response = paramDecoratorFactory(PARAMETER_TYPE.RESPONSE);
 export const requestParam = paramDecoratorFactory(PARAMETER_TYPE.PARAMS);

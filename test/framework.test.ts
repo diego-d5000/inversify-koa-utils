@@ -13,7 +13,7 @@ import {
     controller, httpMethod, all, httpGet, httpPost, httpPut, httpPatch,
     httpHead, httpDelete, request, response, params, requestParam,
     requestBody, queryParam, requestHeaders, cookies,
-    next, context
+    next, context, authorize, authorizeAll
 } from "../src/decorators";
 import { TYPE, PARAMETER_TYPE } from "../src/constants";
 import { BaseMiddleware } from "../src/base_middleware";
@@ -94,7 +94,6 @@ describe("Integration Tests:", () => {
                 .expect(200, "GET", done);
         });
 
-
         it("should work for async methods which call nextFunc()", (done) => {
             @injectable()
             @controller("/")
@@ -120,7 +119,6 @@ describe("Integration Tests:", () => {
                 .expect(200, "GET", done);
         });
 
-
         it("should work for async methods called by nextFunc()", (done) => {
             @injectable()
             @controller("/")
@@ -142,7 +140,6 @@ describe("Integration Tests:", () => {
                 .get("/")
                 .expect(200, "GET", done);
         });
-
 
         it("should work for each shortcut decorator", (done) => {
             @injectable()
@@ -170,7 +167,6 @@ describe("Integration Tests:", () => {
             get();
         });
 
-
         it("should work for more obscure HTTP methods using the httpMethod decorator", (done) => {
             @injectable()
             @controller("/")
@@ -184,7 +180,6 @@ describe("Integration Tests:", () => {
                 .propfind("/")
                 .expect(200, "PROPFIND", done);
         });
-
 
         it("should use returned values as response", (done) => {
             let result = { "hello": "world" };
@@ -462,7 +457,6 @@ describe("Integration Tests:", () => {
                 });
         });
 
-
         it("should call controller-level middleware correctly", (done) => {
             @injectable()
             @controller("/", spyA, spyB, spyC)
@@ -482,7 +476,6 @@ describe("Integration Tests:", () => {
                     done();
                 });
         });
-
 
         it("should call injected controller-level BaseMiddleware correctly", (done) => {
 
@@ -523,7 +516,6 @@ describe("Integration Tests:", () => {
                 });
         });
 
-
         it("should call server-level middleware correctly", (done) => {
             @injectable()
             @controller("/")
@@ -550,7 +542,6 @@ describe("Integration Tests:", () => {
                     done();
                 });
         });
-
 
         it("should call all middleware in correct order", (done) => {
             @injectable()
@@ -660,6 +651,8 @@ describe("Integration Tests:", () => {
                 });
         });
     });
+
+
     describe("Parameters:", () => {
         it("should bind a method parameter to the url parameter of the web request", (done) => {
             @injectable()
@@ -824,6 +817,299 @@ describe("Integration Tests:", () => {
             server = new InversifyKoaServer(container);
             supertest(server.build().listen())
                 .get("/")
+                .expect(200, "foo", done);
+        });
+    });
+
+
+    describe("Authorization:", () => {
+        it("should respond with 401 if there is no auth provider and controller is decorated with @authorizeAll", (done) => {
+            @injectable()
+            @controller("/")
+            @authorizeAll()
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(401, done);
+        });
+
+        it("should respond with 401 if provided principal is not authenticated and controller is decorated with @authorizeAll", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(false),
+                        isInRole: (role: string) => Promise.resolve(true),
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            @authorizeAll()
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(401, done);
+        });
+
+        it("should respond with 403 if provided principal is not in role and controller is decorated with @authorizeAll", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(true),
+                        isInRole: (role: string) => {
+                            if (role === "role a") {
+                                return Promise.resolve(true);
+                            }
+                            return Promise.resolve(false);
+                        },
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            @authorizeAll("role a", "role b")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(403, done);
+        });
+
+        it("should invoke controller if provided principal is authorized according to roles in @authorizeAll", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(true),
+                        isInRole: (role: string) => Promise.resolve(true),
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            @authorizeAll("role a", "role b")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(200, "foo", done);
+        });
+
+        it("should invoke controller if provided principal is authenticated and no roles are enforced in @authorizeAll", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(true),
+                        isInRole: (role: string) => Promise.resolve(false),
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            @authorizeAll()
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(200, "foo", done);
+        });
+
+        // =====
+        it("should respond with 401 if there is no auth provider and method is decorated with @authorize", (done) => {
+            @injectable()
+            @controller("/")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") @authorize() public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(401, done);
+        });
+
+        it("should respond with 401 if provided principal is not authenticated and method is decorated with @authorize", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(false),
+                        isInRole: (role: string) => Promise.resolve(true),
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") @authorize() public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(401, done);
+        });
+
+        it("should respond with 403 if provided principal is not in role and method is decorated with @authorize", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(true),
+                        isInRole: (role: string) => {
+                            if (role === "role a") {
+                                return Promise.resolve(true);
+                            }
+                            return Promise.resolve(false);
+                        },
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") @authorize("role a", "role b") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(403, done);
+        });
+
+        it("should invoke controller if provided principal is authorized according to roles in @authorize", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(true),
+                        isInRole: (role: string) => Promise.resolve(true),
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") @authorize("role a", "role b") public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
+                .expect(200, "foo", done);
+        });
+
+        it("should invoke controller if provided principal is authenticated and no roles are enforced in @authorize", (done) => {
+            @injectable()
+            class TestAuthProvider implements interfaces.AuthProvider {
+                public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                    let principal: interfaces.Principal = {
+                        details: null,
+                        isAuthenticated: () => Promise.resolve(true),
+                        isInRole: (role: string) => Promise.resolve(false),
+                        isResourceOwner: (resourceId: any) => Promise.resolve(true)
+                    };
+                    return Promise.resolve(principal);
+                }
+            }
+
+            @injectable()
+            @controller("/")
+            class TestController {
+                // tslint:disable-next-line:max-line-length
+                @httpGet(":id") @authorize() public getTest( @requestParam("id") id: string, ctx: Router.IRouterContext) {
+                    return id;
+                }
+            }
+            container.bind<interfaces.Controller>(TYPE.Controller).to(TestController).whenTargetNamed("TestController");
+
+            server = new InversifyKoaServer(container, null, null, null, TestAuthProvider);
+            supertest(server.build().listen())
+                .get("/foo")
                 .expect(200, "foo", done);
         });
     });

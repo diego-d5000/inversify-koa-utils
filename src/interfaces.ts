@@ -28,6 +28,15 @@ namespace interfaces {
         type: PARAMETER_TYPE;
     }
 
+    export interface AuthorizeAllMetadata {
+        requiredRoles: string[];
+        target: any;
+    }
+
+    export interface AuthorizeMetadata extends AuthorizeAllMetadata {
+        key: string;
+    }
+
     export interface Controller {}
 
     export interface HandlerDecorator {
