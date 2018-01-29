@@ -1,6 +1,6 @@
 # inversify-koa-utils
 
-[![Join the chat at https://gitter.im/inversify/InversifyJS](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/inversify/InversifyJS?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![inversify chat https://gitter.im/inversify/InversifyJS](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/inversify/InversifyJS?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 [![Build Status](https://secure.travis-ci.org/diego-d5000/inversify-koa-utils.svg?branch=master)](https://travis-ci.org/diego-d5000/inversify-koa-utils)
 [![Test Coverage](https://codeclimate.com/github/diego-d5000/inversify-koa-utils/badges/coverage.svg)](https://codeclimate.com/github/diego-d5000/inversify-koa-utils/coverage)
 [![npm version](https://badge.fury.io/js/inversify-koa-utils.svg)](http://badge.fury.io/js/inversify-koa-utils)
@@ -237,8 +237,166 @@ Binds a method parameter to the request headers.
 ### `@cookies()`
 Binds a method parameter to the request cookies.
 
+### `@context()`
+Binds a method parameter to the koa context object.
+
 ### `@next()`
 Binds a method parameter to the next() function.
+
+### `@authorize([role: string, ...])`
+Ensures that only authenticated and authorized users can invoke this controller method. If authentication fails the status code 401 will be returned. If authorization fails the status code 403 will be returned. Even if authentication or authorization fail all middlewares (for router, controller and method) will be invoked. If you don't provide any roles only authentication will be ensured.
+
+### `@authorizeAll([role: string, ...])`
+Ensures that only authenticated and authorized users can invoke the entire controller. Behaviour is the same as in `@authorize`.
+
+## AuthProvider
+
+You can provide a custom `AuthProvider` to create and provida a principal for the current request.
+
+```ts
+const server = new InversifyKoaServer(
+    container, null, null, null, CustomAuthProvider
+);
+```
+
+We need to implement the `AuthProvider` interface.
+
+The `AuthProvider` allow us to get an user (`Principal`):
+
+```ts
+import * as Router from "koa-router";
+import { injectable, inject } from "inversify";
+import { interfaces } from "inversify-koa-utils";
+
+const authService = inject("AuthService");
+
+@injectable()
+class CustomAuthProvider implements interfaces.AuthProvider {
+
+    @authService private readonly _authService: AuthService;
+
+    public async getUser(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+        const token = req.headers["x-auth-token"]
+        const user = await this._authService.getUser(token);
+        const principal = new Principal(user);
+        return principal;
+    }
+
+}
+```
+
+We also need to implement the Principal interface.
+The `Principal` interface allow us to:
+
+- Access the details of an user
+- Check if it has access to certain resource
+- Check if it is authenticated
+- Check if it is in an user role
+
+```ts
+class Principal implements interfaces.Principal {
+    public details: any;
+    public constrcutor(details: any) {
+        this.details = details;
+    }
+    public isAuthenticated(): Promise<boolean> {
+        return Promise.resolve(true);
+    }
+    public isResourceOwner(resourceId: any): Promise<boolean> {
+        return Promise.resolve(resourceId === 1111);
+    }
+    public isInRole(role: string): Promise<boolean> {
+        return Promise.resolve(role === "admin");
+    }
+}
+```
+
+We can then access the current principal via the context state:
+
+```ts
+@controller("/")
+class UserDetailsController extends BaseHttpController {
+
+    @inject("AuthService") private readonly _authService: AuthService;
+
+    @httpGet("/")
+    public async getUserDetails(@context() ctx: Router.IRouterContext) {
+        if (await this.context.principal.isAuthenticated()) {
+            return this._authService.getUserDetails(this.context.principal.details.id);
+        } else {
+            throw new Error();
+        }
+    }
+}
+```
+
+If you want to ensure that only authenticatied users can invoke a method you can use `@authorize`:
+
+```ts
+@controller("/")
+class UserDetailsController extends BaseHttpController {
+
+    @inject("AuthService") private readonly _authService: AuthService;
+
+    @httpGet("/")
+    @authorize()
+    public async getUserDetails(@context() ctx: Router.IRouterContext) {
+        let isAuthorized = await this.context.principal.isAuthenticated();
+        // isAuthorized will always be true
+    }
+}
+```
+
+## BaseMiddleware
+
+Extending `BaseMiddleware` allow us to inject dependencies 
+in Koa middleware function.
+
+```ts
+import { BaseMiddleware } from "inversify-koa-utils";
+
+@injectable()
+class LoggerMiddleware extends BaseMiddleware {
+    
+    @inject(TYPES.Logger) private readonly _logger: Logger;
+
+    public handler(ctx: Route.IRouteContext, next: () => Promise<any>): any {
+        this._logger.info(ctx);
+        await next();
+    }
+}
+```
+
+We also need to declare some type bindings:
+
+```ts
+const container = new Container();
+
+container.bind<Logger>(TYPES.Logger)
+        .to(Logger);
+
+container.bind<LoggerMiddleware>(TYPES.LoggerMiddleware)
+         .to(LoggerMiddleware);
+
+```
+
+We can then inject `TYPES.LoggerMiddleware` into one of our controllers. 
+
+```ts
+@injectable()
+@controller("/")
+class MyController extends BaseHttpController {
+
+    @httpGet("/", TYPES.LoggerMiddleware)
+    public async getResource() {
+        // controller logic
+    }
+}
+
+container.bind<interfaces.Controller>(TYPE.Controller)
+         .to(MyController)
+         .whenTargetNamed("MyController");
+```
 
 ## License
 

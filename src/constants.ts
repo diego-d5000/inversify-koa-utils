@@ -1,8 +1,11 @@
 const TYPE = {
-    Controller: Symbol("Controller")
+    AuthProvider: Symbol.for("AuthProvider"),
+    Controller: Symbol.for("Controller")
 };
 
 const METADATA_KEY = {
+    authorize: "_authorize",
+    authorizeAll: "_authorize-all",
     controller: "_controller",
     controllerMethod: "_controller-method",
     controllerParameter: "_controller-parameter"

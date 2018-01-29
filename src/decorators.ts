@@ -1,5 +1,6 @@
 import { interfaces } from "./interfaces";
-import { METADATA_KEY, PARAMETER_TYPE } from "./constants";
+import { inject } from "inversify";
+import { TYPE, METADATA_KEY, PARAMETER_TYPE } from "./constants";
 
 export function controller(path: string, ...middleware: interfaces.Middleware[]) {
     return function (target: any) {
@@ -39,16 +40,38 @@ export function httpDelete(path: string, ...middleware: interfaces.Middleware[])
 export function httpMethod(method: string, path: string, ...middleware: interfaces.Middleware[]): interfaces.HandlerDecorator {
     return function (target: any, key: string, value: any) {
         let metadata: interfaces.ControllerMethodMetadata = {path, middleware, method, target, key};
-        let metadataList: interfaces.ControllerMethodMetadata[] = [];
-
-        if (!Reflect.hasOwnMetadata(METADATA_KEY.controllerMethod, target.constructor)) {
-            Reflect.defineMetadata(METADATA_KEY.controllerMethod, metadataList, target.constructor);
-        } else {
-            metadataList = Reflect.getOwnMetadata(METADATA_KEY.controllerMethod, target.constructor);
-        }
+        let metadataList: interfaces.ControllerMethodMetadata[] = getMetadataList(METADATA_KEY.controllerMethod, target);
 
         metadataList.push(metadata);
     };
+}
+
+export function authorizeAll(...requiredRoles: string[]) {
+    return function (target: any) {
+        let metadata: interfaces.AuthorizeAllMetadata = {requiredRoles, target};
+        Reflect.defineMetadata(METADATA_KEY.authorizeAll, metadata, target);
+    };
+}
+
+export function authorize(...requiredRoles: string[]): interfaces.HandlerDecorator {
+    return function (target: any, key: string, value: any) {
+        let metadata: interfaces.AuthorizeMetadata = {requiredRoles, target, key};
+        let metadataList: interfaces.AuthorizeMetadata[] = getMetadataList(METADATA_KEY.authorize, target);
+
+        metadataList[key] = metadata;
+    };
+}
+
+function getMetadataList<T>(metadataKey: string, target: any): T[] {
+    let metadataList: T[] = [];
+
+    if (!Reflect.hasOwnMetadata(metadataKey, target.constructor)) {
+        Reflect.defineMetadata(metadataKey, metadataList, target.constructor);
+    } else {
+        metadataList = Reflect.getOwnMetadata(metadataKey, target.constructor);
+    }
+
+    return metadataList;
 }
 
 export const request = paramDecoratorFactory(PARAMETER_TYPE.REQUEST);

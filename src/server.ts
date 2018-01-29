@@ -3,6 +3,7 @@ import * as Router from "koa-router";
 import * as inversify from "inversify";
 import { interfaces } from "./interfaces";
 import { TYPE, METADATA_KEY, DEFAULT_ROUTING_ROOT_PATH, PARAMETER_TYPE } from "./constants";
+import { BaseMiddleware } from "./base_middleware";
 
 /**
  * Wrapper for the koa server.
@@ -15,6 +16,7 @@ export class InversifyKoaServer {
     private _configFn: interfaces.ConfigFunction;
     private _errorConfigFn: interfaces.ConfigFunction;
     private _routingConfig: interfaces.RoutingConfig;
+    private _AuthProvider: { new(): interfaces.AuthProvider};
 
     /**
      * Wrapper for the koa server.
@@ -25,7 +27,8 @@ export class InversifyKoaServer {
         container: inversify.interfaces.Container,
         customRouter?: Router,
         routingConfig?: interfaces.RoutingConfig,
-        customApp?: Koa
+        customApp?: Koa,
+        authProvider?: { new(): interfaces.AuthProvider} | null
     ) {
         this._container = container;
         this._router = customRouter || new Router();
@@ -33,6 +36,11 @@ export class InversifyKoaServer {
             rootPath: DEFAULT_ROUTING_ROOT_PATH
         };
         this._app = customApp || new Koa();
+        if (authProvider) {
+            this._AuthProvider = authProvider;
+            container.bind<interfaces.AuthProvider>(TYPE.AuthProvider)
+                     .to(this._AuthProvider);
+        }
     }
 
     /**
@@ -65,6 +73,14 @@ export class InversifyKoaServer {
      * Applies all routes and configuration to the server, returning the Koa application.
      */
     public build(): Koa {
+        const _self = this;
+
+        // at very first middleware set the principal to the context state
+        this._app.use(async (ctx: Router.IRouterContext, next: () => Promise<any>) => {
+            ctx.state.principal = await _self._getCurrentPrincipal(ctx);
+            await next();
+        });
+
         // register server-level middleware before anything else
         if (this._configFn) {
             this._configFn.apply(undefined, [this._app]);
@@ -105,20 +121,42 @@ export class InversifyKoaServer {
                 controller.constructor
             );
 
+            let authorizeAllMetadata: interfaces.AuthorizeAllMetadata = Reflect.getOwnMetadata(
+                METADATA_KEY.authorizeAll,
+                controller.constructor
+            );
+
+            let authorizeMetadata: interfaces.AuthorizeMetadata[] = Reflect.getOwnMetadata(
+                METADATA_KEY.authorize,
+                controller.constructor
+            );
+
             if (controllerMetadata && methodMetadata) {
-                let controllerMiddleware = this.resolveMidleware(...controllerMetadata.middleware);
+                let controllerMiddleware = this.resolveMiddleware(...controllerMetadata.middleware);
 
                 methodMetadata.forEach((metadata: interfaces.ControllerMethodMetadata) => {
                     let paramList: interfaces.ParameterMetadata[] = [];
                     if (parameterMetadata) {
                         paramList = parameterMetadata[metadata.key] || [];
                     }
+
+                    let authorizationHandler = [];
+                    if (authorizeAllMetadata) {
+                        let requiredRoles = authorizeAllMetadata.requiredRoles;
+                        authorizationHandler.push(this.authorizationHandlerFactory(requiredRoles));
+                    }
+                    if (authorizeMetadata) {
+                        let requiredRoles = authorizeMetadata[metadata.key].requiredRoles;
+                        authorizationHandler.push(this.authorizationHandlerFactory(requiredRoles));
+                    }
+
                     let handler = this.handlerFactory(controllerMetadata.target.name, metadata.key, paramList);
-                    let routeMiddleware = this.resolveMidleware(...metadata.middleware);
+                    let routeMiddleware = this.resolveMiddleware(...metadata.middleware);
                     this._router[metadata.method](
                         `${controllerMetadata.path}${metadata.path}`,
                         ...controllerMiddleware,
                         ...routeMiddleware,
+                        ...authorizationHandler,
                         handler
                     );
                 });
@@ -128,11 +166,54 @@ export class InversifyKoaServer {
         this._app.use(this._router.routes());
     }
 
-    private resolveMidleware(...middleware: interfaces.Middleware[]): interfaces.KoaRequestHandler[] {
+    private authorizationHandlerFactory(requiredRoles: string[]): interfaces.KoaRequestHandler {
+            return async (ctx: Router.IRouterContext, next: () => Promise<any>) => {
+                let isAuthenticated = false;
+                let isAuthorized = false;
+
+                if (ctx.state.principal) {
+                    let principal: interfaces.Principal = ctx.state.principal;
+
+                    isAuthenticated = await principal.isAuthenticated();
+                    if (isAuthenticated) {
+
+                        isAuthorized = true;
+                        for (let requiredRole of requiredRoles) {
+                            let isInRole = await principal.isInRole(requiredRole);
+                            if (!isInRole) {
+                                isAuthorized = false;
+                            }
+                        }
+                    }
+                }
+
+                if (!isAuthenticated) {
+                    ctx.throw(401);
+                } else if (!isAuthorized) {
+                    ctx.throw(403);
+                } else {
+                    return await next();
+                }
+            };
+    }
+
+    private resolveMiddleware(...middleware: interfaces.Middleware[]): interfaces.KoaRequestHandler[] {
         return middleware.map(middlewareItem => {
-            try {
-                return this._container.get<interfaces.KoaRequestHandler>(middlewareItem);
-            } catch (_) {
+            if (this._container.isBound(middlewareItem)) {
+
+                type MiddlewareInstance = interfaces.KoaRequestHandler | BaseMiddleware;
+                const middlewareInstance = this._container.get<MiddlewareInstance>(middlewareItem);
+
+                if (middlewareInstance instanceof BaseMiddleware) {
+                    const _self = this;
+                    return function(ctx: Router.IRouterContext, next: () => Promise<any>) {
+                        return middlewareInstance.handler(ctx, next);
+                    };
+                } else {
+                    return middlewareInstance;
+                }
+
+            } else {
                 return middlewareItem as interfaces.KoaRequestHandler;
             }
         });
@@ -192,6 +273,20 @@ export class InversifyKoaServer {
             return param.get(name);
         } else {
             return param;
+        }
+    }
+
+    private async _getCurrentPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+        if (this._AuthProvider !== undefined) {
+            const authProvider = this._container.get<interfaces.AuthProvider>(TYPE.AuthProvider);
+            return await authProvider.getPrincipal(ctx);
+        } else {
+            return Promise.resolve<interfaces.Principal>({
+                details: null,
+                isAuthenticated: () => Promise.resolve(false),
+                isInRole: (role: string) => Promise.resolve(false),
+                isResourceOwner: (resourceId: any) => Promise.resolve(false)
+            });
         }
     }
 }

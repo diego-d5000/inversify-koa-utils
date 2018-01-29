@@ -8,6 +8,7 @@ import * as Router from "koa-router";
 import { InversifyKoaServer } from "../src/server";
 import { Container, injectable } from "inversify";
 import { TYPE } from "../src/constants";
+import { interfaces } from "../src/interfaces";
 
 describe("Unit Test: InversifyKoaServer", () => {
 
@@ -81,5 +82,18 @@ describe("Unit Test: InversifyKoaServer", () => {
         expect((serverWithCustomApp as any)._app).to.eq(app);
         // deeply equal causes error with property URL
         expect((serverWithDefaultApp as any)._app).to.not.equal((serverWithCustomApp as any)._app);
+    });
+
+    it("Should allow to provide a auth provider", () => {
+        class MyAuthProvider implements interfaces.AuthProvider {
+            public getPrincipal(ctx: Router.IRouterContext): Promise<interfaces.Principal> {
+                return Promise.resolve(null);
+            }
+        }
+        let container = new Container();
+
+        let server = new InversifyKoaServer(container, null, null, null, MyAuthProvider);
+
+        expect((server as any)._AuthProvider).to.eq(MyAuthProvider);
     });
 });

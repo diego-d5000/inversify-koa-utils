@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { controller, httpMethod, params } from "../src/decorators";
+import { controller, httpMethod, params, authorizeAll, authorize } from "../src/decorators";
 import { interfaces } from "../src/interfaces";
 import { METADATA_KEY, PARAMETER_TYPE } from "../src/constants";
 
@@ -77,6 +77,46 @@ describe("Unit Test: Controller Decorators", () => {
         let paramaterMetadata: interfaces.ParameterMetadata = paramaterMetadataList[0];
         expect(paramaterMetadata.index).eql(0);
         expect(paramaterMetadata.parameterName).eql("id");
+        done();
+    });
+
+    it("should add authorize metadata to a class when decorated with @authorizeAll", (done) => {
+        let requiredRoles = ["role a", "role b"];
+
+        @authorizeAll(...requiredRoles)
+        class TestController {}
+
+        let authorizeAllMetadata: interfaces.AuthorizeAllMetadata = Reflect.getMetadata("_authorize-all", TestController);
+
+        expect(authorizeAllMetadata.requiredRoles).eql(requiredRoles);
+        expect(authorizeAllMetadata.target).eql(TestController);
+        done();
+    });
+
+
+    it("should add authorize metadata to a class when decorated with @authorize", (done) => {
+        let requiredRoles = ["role a", "role b"];
+
+        class TestController {
+            @authorize(...requiredRoles)
+            public test() { return; }
+
+            @authorize("foo", "bar")
+            public test2() { return; }
+
+            @authorize("bar", "foo")
+            public test3() { return; }
+        }
+
+        let authorizeMetadata: interfaces.AuthorizeMetadata[] | any = Reflect.getMetadata("_authorize", TestController);
+
+        expect(Object.keys(authorizeMetadata).length).eql(3);
+
+        let metadata: interfaces.AuthorizeMetadata = authorizeMetadata.test;
+
+        expect(metadata.requiredRoles).eql(requiredRoles);
+        expect(metadata.target.constructor).eql(TestController);
+        expect(metadata.key).eql("test");
         done();
     });
 
