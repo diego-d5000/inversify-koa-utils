@@ -243,6 +243,12 @@ Binds a method parameter to the koa context object.
 ### `@next()`
 Binds a method parameter to the next() function.
 
+### `@authorize([role: string, ...])`
+Ensures that only authenticated and authorized users can invoke this controller method. If authentication fails the status code 401 will be returned. If authorization fails the status code 403 will be returned. Even if authentication or authorization fail all middlewares (for router, controller and method) will be invoked. If you don't provide any roles only authentication will be ensured.
+
+### `@authorizeAll([role: string, ...])`
+Ensures that only authenticated and authorized users can invoke the entire controller. Behaviour is the same as in `@authorize`.
+
 ## AuthProvider
 
 You can provide a custom `AuthProvider` to create and provida a principal for the current request.
@@ -315,11 +321,28 @@ class UserDetailsController extends BaseHttpController {
 
     @httpGet("/")
     public async getUserDetails(@context() ctx: Router.IRouterContext) {
-        if (this.context.principal.isAuthenticated()) {
+        if (await this.context.principal.isAuthenticated()) {
             return this._authService.getUserDetails(this.context.principal.details.id);
         } else {
             throw new Error();
         }
+    }
+}
+```
+
+If you want to ensure that only authenticatied users can invoke a method you can use `@authorize`:
+
+```ts
+@controller("/")
+class UserDetailsController extends BaseHttpController {
+
+    @inject("AuthService") private readonly _authService: AuthService;
+
+    @httpGet("/")
+    @authorize()
+    public async getUserDetails(@context() ctx: Router.IRouterContext) {
+        let isAuthorized = await this.context.principal.isAuthenticated();
+        // isAuthorized will always be true
     }
 }
 ```
