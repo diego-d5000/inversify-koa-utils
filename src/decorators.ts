@@ -40,13 +40,7 @@ export function httpDelete(path: string, ...middleware: interfaces.Middleware[])
 export function httpMethod(method: string, path: string, ...middleware: interfaces.Middleware[]): interfaces.HandlerDecorator {
     return function (target: any, key: string, value: any) {
         let metadata: interfaces.ControllerMethodMetadata = {path, middleware, method, target, key};
-        let metadataList: interfaces.ControllerMethodMetadata[] = [];
-
-        if (!Reflect.hasOwnMetadata(METADATA_KEY.controllerMethod, target.constructor)) {
-            Reflect.defineMetadata(METADATA_KEY.controllerMethod, metadataList, target.constructor);
-        } else {
-            metadataList = Reflect.getOwnMetadata(METADATA_KEY.controllerMethod, target.constructor);
-        }
+        let metadataList: interfaces.ControllerMethodMetadata[] = getMetadataList(METADATA_KEY.controllerMethod, target);
 
         metadataList.push(metadata);
     };
@@ -62,16 +56,22 @@ export function authorizeAll(...requiredRoles: string[]) {
 export function authorize(...requiredRoles: string[]): interfaces.HandlerDecorator {
     return function (target: any, key: string, value: any) {
         let metadata: interfaces.AuthorizeMetadata = {requiredRoles, target, key};
-        let metadataList: interfaces.AuthorizeMetadata[] = [];
-
-        if (!Reflect.hasOwnMetadata(METADATA_KEY.authorize, target.constructor)) {
-            Reflect.defineMetadata(METADATA_KEY.authorize, metadataList, target.constructor);
-        } else {
-            metadataList = Reflect.getOwnMetadata(METADATA_KEY.authorize, target.constructor);
-        }
+        let metadataList: interfaces.AuthorizeMetadata[] = getMetadataList(METADATA_KEY.authorize, target);
 
         metadataList[key] = metadata;
     };
+}
+
+function getMetadataList<T>(metadataKey: string, target: any): T[] {
+    let metadataList: T[] = [];
+
+    if (!Reflect.hasOwnMetadata(metadataKey, target.constructor)) {
+        Reflect.defineMetadata(metadataKey, metadataList, target.constructor);
+    } else {
+        metadataList = Reflect.getOwnMetadata(metadataKey, target.constructor);
+    }
+
+    return metadataList;
 }
 
 export const request = paramDecoratorFactory(PARAMETER_TYPE.REQUEST);
