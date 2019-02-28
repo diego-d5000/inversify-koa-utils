@@ -234,6 +234,9 @@ Binds a method parameter to request.body or to a specific body property if a nam
 ### `@requestHeaders(name?: string)`
 Binds a method parameter to the request headers.
 
+### `@context()`
+Binds a method parameter to the koa context object.
+
 ### `@cookies()`
 Binds a method parameter to the request cookies.
 
