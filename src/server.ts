@@ -182,6 +182,10 @@ export class InversifyKoaServer {
 
     private getParam(source: any, paramType: string, name: string) {
         let param = source[paramType] || source;
+        if (paramType === "query" && name === "default") {
+          return param;
+        }
+
         return param[name] || this.checkQueryParam(paramType, param, name);
     }
 
